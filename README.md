@@ -43,7 +43,7 @@ Base path: `/api`
 | GET | `/sensors/latest?deviceId=` | – | Most recent reading |
 | GET | `/sensors/history?deviceId=&range=24h` | – | Readings in range (chronological) |
 | GET | `/sensors/:sensor?deviceId=&range=` | – | Time series for one sensor |
-| GET | `/alerts?deviceId=&active=&severity=` | – | Alert history |
+| GET | `/alerts?deviceId=&active=&severity=&range=&since=` | – | Alert history, optionally filtered by range (`1h`–`30d`) or ISO start date/time |
 | GET | `/device/status?deviceId=` | – | Online/offline + signal + last seen |
 | GET | `/config/thresholds` | – | Threshold config |
 
