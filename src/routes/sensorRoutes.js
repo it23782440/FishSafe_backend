@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-const { ingest, latest, history, oneSensor } = require('../controllers/sensorController');
+const { ingest, latest, history, oneSensor, summary, records } = require('../controllers/sensorController');
 const { deviceAuth } = require('../middleware/auth');
 const { validateSensorData } = require('../middleware/validate');
 
@@ -11,6 +11,8 @@ router.post('/data', deviceAuth, validateSensorData, ingest);
 // Dashboard reads.
 router.get('/latest', latest);
 router.get('/history', history);
+router.get('/records', records);
+router.get('/summary', summary); // must stay above '/:sensor'
 router.get('/:sensor', oneSensor); // temperature | ph | turbidity | rain | conductivity
 
 module.exports = router;

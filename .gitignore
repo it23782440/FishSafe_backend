@@ -1,5 +1,10 @@
 node_modules/
+
+# Secrets - never commit these (set them in Railway's Variables instead)
 .env
-.env.local
+.env.*
+!.env.example
+src/.env
+
 *.log
 .DS_Store

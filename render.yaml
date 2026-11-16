@@ -23,3 +23,7 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # Optional: set to "true" once CORS_ORIGINS lists your production URL, to stop
+      # accepting every *.vercel.app origin.
+      - key: CORS_STRICT
+        value: "false"

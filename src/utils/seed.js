@@ -1,6 +1,9 @@
 /*
- * Seed script: inserts ~24h of realistic demo readings for one device so you
- * can develop the dashboard WITHOUT the hardware. Run:  npm run seed
+ * Seed script (DEVELOPMENT ONLY): inserts demo readings for one device so you
+ * can develop the dashboard WITHOUT the hardware. The app itself never
+ * generates data - everything it shows comes from the database.
+ *   npm run seed            -> 7 days, one reading every 10 minutes
+ *   SEED_DAYS=30 npm run seed
  */
 require('dotenv').config();
 const mongoose = require('mongoose');
@@ -10,6 +13,7 @@ const Device = require('../models/Device');
 const Alert = require('../models/Alert');
 const { computeStatuses } = require('../services/statusService');
 const { processAlerts } = require('../services/alertService');
+const registry = require('../services/speciesRegistry');
 
 const DEVICE_ID = 'FISHSAFE-001';
 
@@ -19,6 +23,8 @@ function noisy(base, amp) {
 
 async function run() {
   await connectDB();
+  await registry.seedDefaults();
+  await registry.load();
   console.log('[SEED] Clearing existing demo data...');
   await Promise.all([
     SensorReading.deleteMany({ deviceId: DEVICE_ID }),
@@ -27,17 +33,21 @@ async function run() {
   ]);
 
   const now = Date.now();
-  const points = 24 * 6; // one every 10 min for 24h
+  const days = Math.min(Math.max(parseInt(process.env.SEED_DAYS, 10) || 7, 1), 60);
+  const points = days * 24 * 6; // one every 10 min
   let previous = null;
 
   for (let i = points; i >= 0; i--) {
     const t = new Date(now - i * 10 * 60 * 1000);
 
     // Occasionally push pH out of range to generate an alert.
-    const spike = i % 40 === 0;
+    const spike = i % 97 === 0;
+    // Daily temperature cycle: coolest ~02:00, warmest ~14:00 (local server time).
+    const hour = t.getHours() + t.getMinutes() / 60;
+    const dayCycle = Math.sin(((hour - 8) / 24) * 2 * Math.PI);
 
     const readings = {
-      temperature: +noisy(28.5, 2).toFixed(2),
+      temperature: +noisy(27.8 + 2.4 * dayCycle, 0.8).toFixed(2),
       ph: +(spike ? noisy(9.4, 0.2) : noisy(7.3, 0.6)).toFixed(2),
       turbidity: +Math.abs(noisy(12, 10)).toFixed(1),
       rain: +Math.abs(noisy(10, 20)).toFixed(0),

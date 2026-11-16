@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const registry = require('../services/speciesRegistry');
 
 /*
  * One document per physical FishSafe device. Auto-created/updated on first
@@ -9,6 +10,10 @@ const deviceSchema = new mongoose.Schema(
     deviceId:   { type: String, required: true, unique: true, index: true, trim: true },
     name:       { type: String, default: 'FishSafe Device' },
     location:   { type: String, default: '' },
+
+    // Fish species being farmed; drives which thresholds are applied.
+    species:    { type: String, default: () => registry.defaultId() },
+    speciesChangedAt: { type: Date, default: null },
 
     lastSeen:   { type: Date, default: null },      // last successful upload
     lastSignal: { type: Number, default: null },    // last GSM signal %

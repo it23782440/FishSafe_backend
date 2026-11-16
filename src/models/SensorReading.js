@@ -26,6 +26,10 @@ const sensorReadingSchema = new mongoose.Schema(
       conductivity: { type: String, enum: statusEnum, default: 'UNKNOWN' },
     },
 
+    // Species whose thresholds were used when this reading was stored (audit only;
+    // reads always re-evaluate against the device's CURRENT species).
+    species: { type: String, default: null },
+
     overallStatus: { type: String, enum: statusEnum, default: 'UNKNOWN', index: true },
 
     // Network/diagnostic info reported by the device (optional).

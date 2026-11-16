@@ -1,50 +1,61 @@
 const Alert = require('../models/Alert');
 
-const RANGE_MS = {
-  '1h': 60 * 60 * 1000,
-  '6h': 6 * 60 * 60 * 1000,
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
-};
-
 /**
- * GET /api/alerts?deviceId=&active=true&severity=DANGER&range=24h&since=&limit=100
- * Returns alert history (newest first). Use active=true for the live panel.
+ * GET /api/alerts?deviceId=&severity=&active=&kind=&read=&from=&to=&limit=
+ * Newest first. Also returns `unreadCount` for the device (ignoring other filters)
+ * so the sidebar badge stays correct while the list is filtered.
  */
 async function listAlerts(req, res, next) {
   try {
-    const { deviceId, active, severity, range, since } = req.query;
-    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
+    const { deviceId, severity, active, kind, read, from, to } = req.query;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
 
     const filter = {};
     if (deviceId) filter.deviceId = deviceId;
+    if (['INFO', 'WARNING', 'DANGER'].includes(severity)) filter.severity = severity;
     if (active === 'true') filter.active = true;
     if (active === 'false') filter.active = false;
-    if (severity) filter.severity = severity.toUpperCase();
-    const createdAt = {};
-    if (range) {
-      if (!RANGE_MS[range]) {
-        return res.status(400).json({ error: 'Invalid range' });
+    if (kind) filter.kind = kind === 'threshold' ? { $in: ['threshold', null] } : kind;
+    // Optional created-at window (used by the Reports page). Both ends are optional.
+    if (from || to) {
+      const f = from ? new Date(from) : null;
+      const t = to ? new Date(to) : null;
+      if ((f && Number.isNaN(f.getTime())) || (t && Number.isNaN(t.getTime()))) {
+        return res.status(400).json({ error: '`from` and `to` must be valid dates' });
       }
-      createdAt.$gte = new Date(Date.now() - RANGE_MS[range]);
+      filter.createdAt = { ...(f ? { $gte: f } : {}), ...(t ? { $lte: t } : {}) };
     }
-    if (since) {
-      const sinceDate = new Date(since);
-      if (Number.isNaN(sinceDate.getTime())) {
-        return res.status(400).json({ error: 'Invalid since date' });
-      }
-      if (!createdAt.$gte || sinceDate > createdAt.$gte) {
-        createdAt.$gte = sinceDate;
-      }
-    }
-    if (Object.keys(createdAt).length) filter.createdAt = createdAt;
+    if (read === 'true') filter.read = true;
+    if (read === 'false') filter.read = { $ne: true };
 
-    const alerts = await Alert.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
-    res.json({ count: alerts.length, alerts });
-  } catch (err) {
-    next(err);
-  }
+    const [alerts, unreadCount] = await Promise.all([
+      Alert.find(filter).sort({ createdAt: -1 }).limit(limit).lean(),
+      Alert.countDocuments({ ...(deviceId ? { deviceId } : {}), read: { $ne: true } }),
+    ]);
+    res.json({ count: alerts.length, unreadCount, alerts });
+  } catch (err) { next(err); }
 }
 
-module.exports = { listAlerts };
+/** PATCH /api/alerts/:id/read   body: { read: true|false } (default true) */
+async function markRead(req, res, next) {
+  try {
+    const read = req.body?.read !== false;
+    const alert = await Alert.findByIdAndUpdate(
+      req.params.id, { $set: { read, readAt: read ? new Date() : null } }, { new: true }
+    ).lean();
+    if (!alert) return res.status(404).json({ error: 'Alert not found' });
+    res.json(alert);
+  } catch (err) { next(err); }
+}
+
+/** POST /api/alerts/read-all?deviceId= */
+async function markAllRead(req, res, next) {
+  try {
+    const filter = { read: { $ne: true } };
+    if (req.query.deviceId) filter.deviceId = req.query.deviceId;
+    const r = await Alert.updateMany(filter, { $set: { read: true, readAt: new Date() } });
+    res.json({ ok: true, updated: r.modifiedCount });
+  } catch (err) { next(err); }
+}
+
+module.exports = { listAlerts, markRead, markAllRead };
