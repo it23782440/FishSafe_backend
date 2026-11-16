@@ -208,7 +208,41 @@ async function getSummary({ deviceId, range = '24h', from, to, species: speciesO
   return { range: win.range, species, since: win.since, until: win.until, count: r ? r.count : 0, sensors };
 }
 
+/**
+ * Daily means of the last `days` days (local calendar days in `timezone`), oldest first.
+ * Rain uses the daily MAXIMUM (a heavy shower matters even if the day average is low).
+ * Used by the Harvest Feasibility calculator. Returns [] when there is no history.
+ */
+async function getDailyMeans({ deviceId, days = 14, until = new Date(), timezone = 'Asia/Colombo' }) {
+  const since = new Date(until.getTime() - days * 86400000);
+  const rows = await SensorReading.aggregate([
+    { $match: buildFilter(deviceId, since, until) },
+    {
+      $group: {
+        _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp', timezone } },
+        temperature: { $avg: '$temperature' },
+        ph: { $avg: '$ph' },
+        turbidity: { $avg: '$turbidity' },
+        conductivity: { $avg: '$conductivity' },
+        rainMax: { $max: '$rain' },
+        readings: { $sum: 1 },
+      },
+    },
+    { $sort: { _id: 1 } },
+  ]);
+  // A 14 x 24 h window touches 15 calendar dates: keep the most recent `days` of them.
+  return rows.slice(-days).map((r) => ({
+    date: r._id,
+    temperature: round(r.temperature),
+    ph: round(r.ph),
+    turbidity: round(r.turbidity),
+    tds: round(r.conductivity),
+    rainMax: round(r.rainMax),
+    readings: r.readings,
+  }));
+}
+
 module.exports = {
   RANGE_HOURS, httpError, parseLimit, rangeToSince, resolveWindow, speciesForDevice, withCurrentStatus,
-  buildFilter, getHistory, getSensorSeries, getCoreSeries, getSummary,
+  buildFilter, getHistory, getSensorSeries, getCoreSeries, getSummary, getDailyMeans,
 };

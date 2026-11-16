@@ -498,3 +498,49 @@ test('CORS: localhost and listed origins allowed, look-alikes blocked', async ()
   assert.equal((await get('https://my-app.vercel.app')).headers.get('access-control-allow-origin'), 'https://my-app.vercel.app');
   assert.equal((await get('https://evil-localhost.com')).headers.get('access-control-allow-origin'), null);
 });
+
+/* =========================== harvest feasibility =========================== */
+
+const FEAS = { species: 'prawn', stock: 40, avgWeightG: 15, mealsPerDay: 2, feedKgPerDay: 1.5, targetKg: 100, months: 3 };
+const calc = (body) => api('/api/feasibility/calculate', { method: 'POST', body: JSON.stringify(body) });
+
+test('feasibility: species list comes from config/aquaculture.js', async () => {
+  const body = await json('/api/feasibility/species');
+  assert.deepEqual(body.species.map((s) => s.id), ['tilapia', 'prawn', 'carp', 'catfish']);
+  assert.equal(body.species.find((s) => s.id === 'prawn').stockUnit, 'kg');
+  assert.equal(body.species.find((s) => s.id === 'tilapia').stockUnit, 'count');
+});
+
+test('feasibility: works with no sensor history (default temperature, says so)', async () => {
+  const res = await calc({ ...FEAS, deviceId: 'FEAS-EMPTY' });
+  assert.equal(res.status, 200);
+  const r = await res.json();
+  assert.equal(r.environment.source, 'default');
+  assert.match(r.environment.note, /no sensor history/);
+  assert.ok(['ACHIEVABLE', 'ACHIEVABLE_WITH_CHANGES', 'UNLIKELY', 'NOT_POSSIBLE'].includes(r.verdict.code));
+  // no deviceId at all is also fine
+  assert.equal((await calc(FEAS)).status, 200);
+});
+
+test('feasibility: uses the device\'s stored readings automatically', async () => {
+  for (let i = 0; i < 3; i += 1) assert.equal((await post(reading('FEAS-1', 24, 7.6, { turbidity: 12, conductivity: 400 }))).status, 201);
+  const r = await (await calc({ ...FEAS, deviceId: 'FEAS-1' })).json();
+  assert.equal(r.environment.source, 'history');
+  assert.equal(r.environment.historyDays, 1);
+  const t = r.environment.rows.find((x) => x.key === 'temperature');
+  assert.equal(t.latest, 24);
+  assert.equal(t.recentMean, 24);
+  assert.ok(t.growthEffectPct < 0, '24 C slows prawn growth');
+  assert.ok(r.environment.waterFactor.temperature < 1);
+});
+
+test('feasibility: invalid input -> 400 with a plain message and the field name', async () => {
+  const bad = await calc({ ...FEAS, months: undefined, deadline: '2020-01-01' });
+  assert.equal(bad.status, 400);
+  const body = await bad.json();
+  assert.match(body.error, /past/);
+  assert.equal(body.field, 'deadline');
+  const neg = await (await calc({ ...FEAS, stock: -5 })).json();
+  assert.equal(neg.field, 'stock');
+  assert.equal((await calc({ ...FEAS, species: 'shark' })).status, 400);
+});
